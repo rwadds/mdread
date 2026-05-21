@@ -45,6 +45,10 @@ struct MarkdownParser {
                 blocks.append(quote)
                 continue
             }
+            if let table = consumeTable() {
+                blocks.append(table)
+                continue
+            }
             if let list = consumeUnorderedList() {
                 blocks.append(list)
                 continue
@@ -150,6 +154,104 @@ struct MarkdownParser {
         return .blockquote(blocks: nestedBlocks)
     }
 
+    // MARK: - Tables
+
+    /// True when the line at `index` is a table header followed by a valid
+    /// GFM delimiter row with a matching column count.
+    private func isTableStart(at index: Int) -> Bool {
+        guard index + 1 < lines.count else { return false }
+        guard lines[index].contains("|") else { return false }
+        guard let alignments = parseDelimiterRow(lines[index + 1]) else { return false }
+        let headers = splitTableRow(lines[index])
+        return !headers.isEmpty && headers.count == alignments.count
+    }
+
+    private mutating func consumeTable() -> MarkdownBlock? {
+        guard isTableStart(at: idx) else { return nil }
+        let headers = splitTableRow(lines[idx])
+        guard let alignments = parseDelimiterRow(lines[idx + 1]) else { return nil }
+        idx += 2
+
+        var rows: [[String]] = []
+        while idx < lines.count {
+            let trimmed = lines[idx].trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty, trimmed.contains("|") else { break }
+            var cells = splitTableRow(lines[idx])
+            if cells.count < headers.count {
+                cells += Array(repeating: "", count: headers.count - cells.count)
+            } else if cells.count > headers.count {
+                cells = Array(cells.prefix(headers.count))
+            }
+            rows.append(cells)
+            idx += 1
+        }
+        return .table(headers: headers, alignments: alignments, rows: rows)
+    }
+
+    /// Splits a table row into trimmed cells, honoring `\|` escapes and the
+    /// optional leading/trailing pipes.
+    private func splitTableRow(_ line: String) -> [String] {
+        var content = line.trimmingCharacters(in: .whitespaces)
+        if content.hasPrefix("|") {
+            content.removeFirst()
+        }
+        if content.hasSuffix("|"), !content.hasSuffix("\\|") {
+            content.removeLast()
+        }
+
+        var cells: [String] = []
+        var current = ""
+        var escaped = false
+        for character in content {
+            if escaped {
+                if character == "|" {
+                    current.append("|")
+                } else {
+                    current.append("\\")
+                    current.append(character)
+                }
+                escaped = false
+            } else if character == "\\" {
+                escaped = true
+            } else if character == "|" {
+                cells.append(current.trimmingCharacters(in: .whitespaces))
+                current = ""
+            } else {
+                current.append(character)
+            }
+        }
+        if escaped { current.append("\\") }
+        cells.append(current.trimmingCharacters(in: .whitespaces))
+        return cells
+    }
+
+    /// Parses a GFM delimiter row (`| :--- | :--: | ---: |`) into per-column
+    /// alignments, or `nil` when the line is not a delimiter row.
+    private func parseDelimiterRow(_ line: String) -> [ColumnAlignment]? {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.contains("-") else { return nil }
+        let allowed: Set<Character> = ["|", ":", "-", " ", "\t"]
+        guard trimmed.allSatisfy({ allowed.contains($0) }) else { return nil }
+
+        let cells = splitTableRow(line)
+        guard !cells.isEmpty else { return nil }
+
+        var alignments: [ColumnAlignment] = []
+        for cell in cells {
+            let spec = cell.trimmingCharacters(in: .whitespaces)
+            let left = spec.hasPrefix(":")
+            let right = spec.hasSuffix(":")
+            let dashes = spec.trimmingCharacters(in: CharacterSet(charactersIn: ":"))
+            guard !dashes.isEmpty, dashes.allSatisfy({ $0 == "-" }) else { return nil }
+            switch (left, right) {
+            case (true, true): alignments.append(.center)
+            case (false, true): alignments.append(.trailing)
+            default: alignments.append(.leading)
+            }
+        }
+        return alignments
+    }
+
     private mutating func consumeUnorderedList() -> MarkdownBlock? {
         guard unorderedMarker(in: lines[idx]) != nil else { return nil }
         var items: [String] = []
@@ -215,6 +317,7 @@ struct MarkdownParser {
             if matchHeading(trimmed) != nil { break }
             if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { break }
             if trimmed.hasPrefix(">") { break }
+            if isTableStart(at: idx) { break }
             if unorderedMarker(in: current) != nil { break }
             if orderedMarker(in: current) != nil { break }
             pieces.append(trimmed)

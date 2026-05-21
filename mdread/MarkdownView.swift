@@ -33,7 +33,7 @@ struct MarkdownView: View {
             case 3: return 26
             default: return 22
             }
-        case .codeBlock, .blockquote, .image:
+        case .codeBlock, .blockquote, .image, .table:
             return 22
         case .divider:
             return 24
@@ -73,6 +73,8 @@ private struct BlockView: View {
             ListView(items: items, ordered: true, start: start, textScale: textScale)
         case .image(let url, let alt, let title):
             ImageBlockView(url: url, alt: alt, title: title, baseURL: baseURL, textScale: textScale)
+        case .table(let headers, let alignments, let rows):
+            TableView(headers: headers, alignments: alignments, rows: rows, textScale: textScale)
         case .divider:
             DividerLine()
         }
@@ -349,6 +351,69 @@ private struct ImageBlockView: View {
             return URL(fileURLWithPath: trimmed, relativeTo: baseURL.deletingLastPathComponent())
         }
         return nil
+    }
+}
+
+private struct TableView: View {
+    let headers: [String]
+    let alignments: [ColumnAlignment]
+    let rows: [[String]]
+    let textScale: Double
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
+                GridRow {
+                    ForEach(Array(headers.enumerated()), id: \.offset) { index, value in
+                        cell(value, column: index, isHeader: true)
+                            .gridColumnAlignment(columnAlignment(index))
+                    }
+                }
+                Divider()
+                ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
+                    GridRow {
+                        ForEach(Array(row.enumerated()), id: \.offset) { index, value in
+                            cell(value, column: index, isHeader: false)
+                        }
+                    }
+                    if rowIndex < rows.count - 1 {
+                        Divider().opacity(0.5)
+                    }
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func cell(_ text: String, column: Int, isHeader: Bool) -> some View {
+        let alignment = column < alignments.count ? alignments[column] : ColumnAlignment.leading
+        return Text(InlineMarkdown.attributed(text))
+            .font(.system(size: ReaderMetrics.baseBodySize * textScale * 0.95,
+                           weight: isHeader ? .semibold : .regular,
+                           design: .serif))
+            .multilineTextAlignment(textAlignment(alignment))
+            .foregroundStyle(.primary)
+            .textSelection(.enabled)
+            .frame(maxWidth: 380)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+    }
+
+    private func columnAlignment(_ column: Int) -> HorizontalAlignment {
+        let alignment = column < alignments.count ? alignments[column] : ColumnAlignment.leading
+        switch alignment {
+        case .leading: return .leading
+        case .center: return .center
+        case .trailing: return .trailing
+        }
+    }
+
+    private func textAlignment(_ alignment: ColumnAlignment) -> TextAlignment {
+        switch alignment {
+        case .leading: return .leading
+        case .center: return .center
+        case .trailing: return .trailing
+        }
     }
 }
 
