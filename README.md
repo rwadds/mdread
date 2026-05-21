@@ -16,26 +16,22 @@ HTML soup, just text laid out the way a book would lay it out.
 - **Single document, single window** — open a new file and it replaces what's
   on screen; no tab clutter.
 - **Light and dark mode** — adapts to the system appearance automatically.
+- **Open timing** — a slim status bar reports how long the file took to read.
 
 ### What it renders
 
-- ATX headings (`#` through `######`)
+- ATX and Setext headings (`#` through `######`, or `===` / `---` underlines)
 - Paragraphs with inline `**bold**`, `*italic*`, `` `code` ``, `~~strike~~`,
   `[links](https://...)` and autolinks
 - Fenced code blocks (` ``` ` and `~~~`), with an optional language label
 - Block quotes (`>` prefix)
-- Unordered (`-`, `*`, `+`) and ordered (`1.`, `2.`, …) lists
+- Unordered, ordered, and nested lists, plus `[ ]` / `[x]` task lists
+- Tables, with per-column alignment
+- Inline images and image blocks — local files and remote URLs
 - Horizontal rules (`---`, `***`, `___`)
+- Raw HTML, passed through as plain text with tags stripped
 
-### What it doesn't (yet)
-
-- Inline images and image blocks
-- Tables
-- Nested lists and task-list checkboxes
-- Setext headings (`===` / `---` underlines)
-- HTML passthrough
-
-These are on the list, not in the box.
+That covers CommonMark plus the common GitHub-Flavored extensions.
 
 ## Requirements
 
