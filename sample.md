@@ -56,6 +56,55 @@ Plain code blocks work too — no language hint required.
 
 Visit [Anthropic](https://www.anthropic.com) for more. Inline emphasis comes in *italic*, **bold**, and even ***both***. You can also ~~strike things through~~ when you change your mind.
 
+## What else mdread renders
+
+A few newer arrivals, each earning its place on the page.
+
+### Tables
+
+| Construct      | Mnemonic    |        Added |
+| -------------- | :---------: | -----------: |
+| Tables         | rows & keys |     this one |
+| Nested lists   | indentation | the next one |
+| Task lists     | `[x]`       |   just below |
+
+Columns can lean left, sit centred, or align to the right.
+
+### Lists within lists
+
+- Typography
+  - A humanist serif for the body text
+  - Monospace kept to code, where it earns its keep
+- Layout
+  1. A column measured to the eye
+  2. Line height with room to breathe
+
+### A list that keeps score
+
+- [x] Render tables
+- [x] Nest one list inside another
+- [x] Tick a box
+- [ ] Read every book ever written
+
+An old-fashioned heading
+------------------------
+
+That underline — a row of dashes beneath a line of text — is a *Setext*
+heading, the quieter cousin of the `#` form.
+
+### A little raw HTML
+
+Markdown lets you drop in <strong>raw HTML</strong>, and mdread keeps the
+words while quietly setting the tags aside.
+
+<div align="center">
+  Even a whole block of HTML becomes plain, readable text.
+</div>
+
+### An image
+
+![A photograph, by way of Lorem Picsum](https://picsum.photos/seed/mdread/720/240)
+
 ###### A whisper of a heading
 
 That's all for now. Drop a real file in to keep reading.
