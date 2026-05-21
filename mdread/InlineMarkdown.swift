@@ -2,13 +2,14 @@ import SwiftUI
 
 enum InlineMarkdown {
     static func attributed(_ source: String) -> AttributedString {
+        let cleaned = HTMLText.outsideCodeSpans(source) { HTMLText.plainText(from: $0) }
         let options = AttributedString.MarkdownParsingOptions(
             allowsExtendedAttributes: false,
             interpretedSyntax: .inlineOnlyPreservingWhitespace,
             failurePolicy: .returnPartiallyParsedIfPossible,
             languageCode: nil
         )
-        var attr = (try? AttributedString(markdown: source, options: options)) ?? AttributedString(source)
+        var attr = (try? AttributedString(markdown: cleaned, options: options)) ?? AttributedString(cleaned)
 
         let codeRanges = attr.runs
             .filter { $0.inlinePresentationIntent?.contains(.code) == true }

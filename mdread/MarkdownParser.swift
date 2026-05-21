@@ -41,6 +41,10 @@ struct MarkdownParser {
                 blocks.append(code)
                 continue
             }
+            if let htmlBlocks = consumeHTMLBlock() {
+                blocks.append(contentsOf: htmlBlocks)
+                continue
+            }
             if let quote = consumeBlockquote() {
                 blocks.append(quote)
                 continue
@@ -157,6 +161,45 @@ struct MarkdownParser {
         let nestedSource = quoted.joined(separator: "\n")
         let nestedBlocks = MarkdownParser.parse(nestedSource)
         return .blockquote(blocks: nestedBlocks)
+    }
+
+    // MARK: - HTML passthrough
+
+    /// True when the line begins an HTML block — a `<tag`, `</tag`, or `<!--`
+    /// at the start of the line. Autolinks like `<https://…>` are excluded.
+    private func isHTMLBlockStart(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("<") else { return false }
+        if trimmed.hasPrefix("<!--") { return true }
+
+        var rest = trimmed.dropFirst()
+        if rest.first == "/" { rest = rest.dropFirst() }
+        guard let firstChar = rest.first, firstChar.isLetter else { return false }
+
+        var nameEnd = rest.startIndex
+        while nameEnd < rest.endIndex,
+              rest[nameEnd].isLetter || rest[nameEnd].isNumber || rest[nameEnd] == "-" {
+            nameEnd = rest.index(after: nameEnd)
+        }
+        guard nameEnd < rest.endIndex else { return true }
+        let after = rest[nameEnd]
+        return after == ">" || after == "/" || after == " " || after == "\t"
+    }
+
+    /// Consumes a run of raw HTML lines (until a blank line) and returns it
+    /// with tags stripped. Returns `[]` when the block strips to nothing, or
+    /// `nil` when the current line does not begin an HTML block.
+    private mutating func consumeHTMLBlock() -> [MarkdownBlock]? {
+        guard isHTMLBlockStart(lines[idx]) else { return nil }
+        var htmlLines: [String] = []
+        while idx < lines.count {
+            if lines[idx].trimmingCharacters(in: .whitespaces).isEmpty { break }
+            htmlLines.append(lines[idx])
+            idx += 1
+        }
+        let text = HTMLText.plainText(from: htmlLines.joined(separator: "\n"))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return text.isEmpty ? [] : [.paragraph(text: text)]
     }
 
     // MARK: - Tables
@@ -444,6 +487,7 @@ struct MarkdownParser {
             if matchHeading(trimmed) != nil { break }
             if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { break }
             if trimmed.hasPrefix(">") { break }
+            if isHTMLBlockStart(current) { break }
             if isTableStart(at: idx) { break }
             if listMarker(in: current) != nil { break }
             pieces.append(trimmed)
