@@ -3,7 +3,7 @@ import Foundation
 /// Best-effort conversion of raw HTML to plain text — strips tags, decodes
 /// common HTML entities, and turns `<br>` into a line break. Used to render
 /// HTML passthrough as quiet, readable text rather than angle-bracket soup.
-enum HTMLText {
+nonisolated enum HTMLText {
     /// Strips tags and decodes entities from a fragment of raw HTML.
     static func plainText(from html: String) -> String {
         var text = html

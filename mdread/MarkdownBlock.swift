@@ -1,6 +1,9 @@
 import Foundation
 
-enum MarkdownBlock: Equatable, Hashable {
+// The block model and parser are `nonisolated` so a document can be parsed
+// off the main actor without blocking the UI.
+
+nonisolated enum MarkdownBlock: Equatable, Hashable {
     case heading(level: Int, text: String)
     case paragraph(text: String)
     case codeBlock(language: String?, code: String)
@@ -11,24 +14,24 @@ enum MarkdownBlock: Equatable, Hashable {
     case divider
 }
 
-struct MarkdownList: Equatable, Hashable {
+nonisolated struct MarkdownList: Equatable, Hashable {
     var ordered: Bool
     var start: Int
     var items: [ListItem]
 }
 
-struct ListItem: Equatable, Hashable {
+nonisolated struct ListItem: Equatable, Hashable {
     var text: String
     var task: TaskState?
     var children: [MarkdownBlock]
 }
 
-enum TaskState: Equatable, Hashable {
+nonisolated enum TaskState: Equatable, Hashable {
     case open
     case done
 }
 
-enum ColumnAlignment: Equatable, Hashable {
+nonisolated enum ColumnAlignment: Equatable, Hashable {
     case leading
     case center
     case trailing

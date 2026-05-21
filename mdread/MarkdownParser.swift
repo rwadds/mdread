@@ -1,6 +1,6 @@
 import Foundation
 
-struct MarkdownParser {
+nonisolated struct MarkdownParser {
     private let lines: [String]
     private var idx: Int = 0
 

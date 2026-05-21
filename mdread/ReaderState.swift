@@ -10,6 +10,8 @@ final class ReaderState {
     var errorMessage: String?
     var textScale: Double
 
+    @ObservationIgnored private var loadGeneration = 0
+
     static let minScale: Double = 0.7
     static let maxScale: Double = 2.0
     private static let textScaleKey = "textScale"
@@ -25,6 +27,29 @@ final class ReaderState {
     }
 
     func load(url: URL) {
+        loadGeneration += 1
+        let generation = loadGeneration
+        Task { await performLoad(url: url, generation: generation) }
+    }
+
+    /// Applies the result of an off-main load, discarding it if a newer load
+    /// has been started in the meantime.
+    private func performLoad(url: URL, generation: Int) async {
+        let outcome = await readAndParse(url: url)
+        guard generation == loadGeneration else { return }
+        switch outcome {
+        case .loaded(let document):
+            self.document = document
+            self.errorMessage = nil
+            NSDocumentController.shared.noteNewRecentDocumentURL(url)
+        case .failed(let message):
+            self.errorMessage = message
+        }
+    }
+
+    /// Reads and parses the file off the main actor, so a large document
+    /// never blocks the UI.
+    private nonisolated func readAndParse(url: URL) async -> LoadOutcome {
         let needsAccess = url.startAccessingSecurityScopedResource()
         defer { if needsAccess { url.stopAccessingSecurityScopedResource() } }
 
@@ -33,16 +58,14 @@ final class ReaderState {
             let source = try readString(at: url)
             let blocks = MarkdownParser.parse(source)
             let openDuration = Date().timeIntervalSince(startedAt)
-            self.document = MarkdownDocument(
+            return .loaded(MarkdownDocument(
                 url: url,
                 source: source,
                 blocks: blocks,
                 openDuration: openDuration
-            )
-            self.errorMessage = nil
-            NSDocumentController.shared.noteNewRecentDocumentURL(url)
+            ))
         } catch {
-            self.errorMessage = error.localizedDescription
+            return .failed(error.localizedDescription)
         }
     }
 
@@ -98,7 +121,7 @@ final class ReaderState {
         UserDefaults.standard.set(value, forKey: Self.textScaleKey)
     }
 
-    private func readString(at url: URL) throws -> String {
+    private nonisolated func readString(at url: URL) throws -> String {
         if let utf8 = try? String(contentsOf: url, encoding: .utf8) {
             return utf8
         }
@@ -122,6 +145,12 @@ final class ReaderState {
         ]
         return candidates.compactMap { $0 }
     }()
+}
+
+/// Result of an off-main document load, carried back to the main actor.
+private nonisolated enum LoadOutcome {
+    case loaded(MarkdownDocument)
+    case failed(String)
 }
 
 private extension Comparable {
