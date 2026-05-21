@@ -49,11 +49,7 @@ struct MarkdownParser {
                 blocks.append(table)
                 continue
             }
-            if let list = consumeUnorderedList() {
-                blocks.append(list)
-                continue
-            }
-            if let list = consumeOrderedList() {
+            if let list = consumeList() {
                 blocks.append(list)
                 continue
             }
@@ -252,59 +248,177 @@ struct MarkdownParser {
         return alignments
     }
 
-    private mutating func consumeUnorderedList() -> MarkdownBlock? {
-        guard unorderedMarker(in: lines[idx]) != nil else { return nil }
-        var items: [String] = []
+    // MARK: - Lists
+
+    private struct ListMarker {
+        let markerIndent: Int
+        let ordered: Bool
+        let number: Int
+        let text: String
+        let task: TaskState?
+    }
+
+    private mutating func consumeList() -> MarkdownBlock? {
+        guard let first = listMarker(in: lines[idx]) else { return nil }
+        return .list(parseList(at: first.markerIndent))
+    }
+
+    /// Parses one list whose item markers sit at `indent` columns, recursing
+    /// for any more-indented markers as nested lists. Stops when a line dedents
+    /// out of the list or is no longer list content.
+    private mutating func parseList(at indent: Int) -> MarkdownList {
+        var items: [ListItem] = []
+        var ordered = false
+        var start = 1
+        var sawFirstItem = false
+
         while idx < lines.count {
-            let current = lines[idx]
-            let trimmed = current.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty { break }
-            guard let markerEnd = unorderedMarker(in: current) else {
-                // Continuation of previous item if indented; otherwise list ends.
-                if current.first == " " || current.first == "\t", var last = items.popLast() {
-                    last.append(" ")
-                    last.append(trimmed)
+            let line = lines[idx]
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+
+            if trimmed.isEmpty {
+                // Tolerate a single blank line when the list resumes afterwards.
+                if let next = nextNonBlankIndex(after: idx),
+                   let nextMarker = listMarker(in: lines[next]),
+                   nextMarker.markerIndent >= indent {
+                    idx += 1
+                    continue
+                }
+                break
+            }
+
+            guard let marker = listMarker(in: line) else {
+                // A non-marker line indented under the list continues the item.
+                if leadingIndent(of: line) > indent, var last = items.popLast() {
+                    last.text += last.text.isEmpty ? trimmed : " " + trimmed
                     items.append(last)
                     idx += 1
                     continue
-                } else {
-                    break
                 }
+                break
             }
-            let content = String(current[markerEnd...]).trimmingCharacters(in: .whitespaces)
-            items.append(content)
+
+            if marker.markerIndent < indent {
+                break
+            }
+
+            if marker.markerIndent > indent {
+                // A deeper marker: a nested list belonging to the last item.
+                if var last = items.popLast() {
+                    last.children.append(.list(parseList(at: marker.markerIndent)))
+                    items.append(last)
+                    continue
+                }
+                break
+            }
+
+            if !sawFirstItem {
+                sawFirstItem = true
+                ordered = marker.ordered
+                start = marker.number
+            }
+            items.append(ListItem(text: marker.text, task: marker.task, children: []))
             idx += 1
         }
-        guard !items.isEmpty else { return nil }
-        return .unorderedList(items: items)
+
+        return MarkdownList(ordered: ordered, start: start, items: items)
     }
 
-    private mutating func consumeOrderedList() -> MarkdownBlock? {
-        guard let firstMatch = orderedMarker(in: lines[idx]) else { return nil }
-        var items: [String] = []
-        items.append(firstMatch.content)
-        let start = firstMatch.number
-        idx += 1
-        while idx < lines.count {
-            let current = lines[idx]
-            let trimmed = current.trimmingCharacters(in: .whitespaces)
-            if trimmed.isEmpty { break }
-            if let match = orderedMarker(in: current) {
-                items.append(match.content)
-                idx += 1
-                continue
-            }
-            // Continuation
-            if (current.first == " " || current.first == "\t"), var last = items.popLast() {
-                last.append(" ")
-                last.append(trimmed)
-                items.append(last)
-                idx += 1
-                continue
-            }
-            break
+    /// Parses a list-item marker (`-`, `*`, `+`, or `1.` / `1)`) at the start
+    /// of `line`, including any `[ ]` / `[x]` task checkbox.
+    private func listMarker(in line: String) -> ListMarker? {
+        let indent = leadingIndent(of: line)
+        var index = line.startIndex
+        while index < line.endIndex, line[index] == " " || line[index] == "\t" {
+            index = line.index(after: index)
         }
-        return .orderedList(start: start, items: items)
+        guard index < line.endIndex else { return nil }
+
+        let ordered: Bool
+        let number: Int
+        let afterMarker: String.Index
+
+        let first = line[index]
+        if first == "-" || first == "*" || first == "+" {
+            ordered = false
+            number = 1
+            afterMarker = line.index(after: index)
+        } else if first.isNumber {
+            var digits = ""
+            var cursor = index
+            while cursor < line.endIndex, line[cursor].isNumber, digits.count < 9 {
+                digits.append(line[cursor])
+                cursor = line.index(after: cursor)
+            }
+            guard cursor < line.endIndex, line[cursor] == "." || line[cursor] == ")" else {
+                return nil
+            }
+            ordered = true
+            number = Int(digits) ?? 1
+            afterMarker = line.index(after: cursor)
+        } else {
+            return nil
+        }
+
+        // The marker must be followed by whitespace, unless it is an empty item.
+        var contentStart = afterMarker
+        if contentStart < line.endIndex {
+            guard line[contentStart] == " " || line[contentStart] == "\t" else { return nil }
+            while contentStart < line.endIndex,
+                  line[contentStart] == " " || line[contentStart] == "\t" {
+                contentStart = line.index(after: contentStart)
+            }
+        }
+
+        var text = String(line[contentStart...]).trimmingCharacters(in: .whitespaces)
+        let task = parseTaskPrefix(&text)
+        return ListMarker(markerIndent: indent, ordered: ordered,
+                          number: number, text: text, task: task)
+    }
+
+    /// Detects and strips a leading `[ ]`, `[x]`, or `[X]` task checkbox,
+    /// returning its state and removing it from `text`.
+    private func parseTaskPrefix(_ text: inout String) -> TaskState? {
+        let chars = Array(text)
+        guard chars.count >= 3, chars[0] == "[", chars[2] == "]" else { return nil }
+        let state: TaskState
+        switch chars[1] {
+        case " ": state = .open
+        case "x", "X": state = .done
+        default: return nil
+        }
+        if chars.count == 3 {
+            text = ""
+            return state
+        }
+        guard chars[3] == " " || chars[3] == "\t" else { return nil }
+        text = String(chars[4...]).trimmingCharacters(in: .whitespaces)
+        return state
+    }
+
+    private func leadingIndent(of line: String) -> Int {
+        var indent = 0
+        for character in line {
+            if character == " " {
+                indent += 1
+            } else if character == "\t" {
+                indent += 4
+            } else {
+                break
+            }
+        }
+        return indent
+    }
+
+    private func nextNonBlankIndex(after index: Int) -> Int? {
+        var cursor = index + 1
+        while cursor < lines.count {
+            if !lines[cursor].trimmingCharacters(in: .whitespaces).isEmpty {
+                return cursor
+            }
+            cursor += 1
+        }
+        return nil
     }
 
     private mutating func consumeParagraph() -> [MarkdownBlock] {
@@ -318,8 +432,7 @@ struct MarkdownParser {
             if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { break }
             if trimmed.hasPrefix(">") { break }
             if isTableStart(at: idx) { break }
-            if unorderedMarker(in: current) != nil { break }
-            if orderedMarker(in: current) != nil { break }
+            if listMarker(in: current) != nil { break }
             pieces.append(trimmed)
             idx += 1
         }
@@ -387,50 +500,4 @@ struct MarkdownParser {
         return url
     }
 
-    // MARK: - List marker helpers
-
-    private func unorderedMarker(in line: String) -> String.Index? {
-        // Allow up to 3 spaces of indent before the marker, then '-', '*', or '+', then a space.
-        var i = line.startIndex
-        var leadingSpaces = 0
-        while i < line.endIndex, line[i] == " ", leadingSpaces < 3 {
-            leadingSpaces += 1
-            i = line.index(after: i)
-        }
-        guard i < line.endIndex else { return nil }
-        let ch = line[i]
-        guard ch == "-" || ch == "*" || ch == "+" else { return nil }
-        let next = line.index(after: i)
-        guard next < line.endIndex, line[next] == " " || line[next] == "\t" else { return nil }
-        return line.index(after: next)
-    }
-
-    private struct OrderedMatch {
-        let number: Int
-        let content: String
-    }
-
-    private func orderedMarker(in line: String) -> OrderedMatch? {
-        var i = line.startIndex
-        var leadingSpaces = 0
-        while i < line.endIndex, line[i] == " ", leadingSpaces < 3 {
-            leadingSpaces += 1
-            i = line.index(after: i)
-        }
-        var digits = ""
-        while i < line.endIndex, line[i].isASCII, line[i].isNumber, digits.count < 9 {
-            digits.append(line[i])
-            i = line.index(after: i)
-        }
-        guard !digits.isEmpty, i < line.endIndex else { return nil }
-        let punct = line[i]
-        guard punct == "." || punct == ")" else { return nil }
-        let afterPunct = line.index(after: i)
-        guard afterPunct < line.endIndex, line[afterPunct] == " " || line[afterPunct] == "\t" else {
-            return nil
-        }
-        let contentStart = line.index(after: afterPunct)
-        let content = String(line[contentStart...]).trimmingCharacters(in: .whitespaces)
-        return OrderedMatch(number: Int(digits) ?? 1, content: content)
-    }
 }

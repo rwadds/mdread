@@ -67,10 +67,8 @@ private struct BlockView: View {
             CodeBlockView(language: language, code: code, textScale: textScale)
         case .blockquote(let inner):
             BlockquoteView(blocks: inner, textScale: textScale, baseURL: baseURL)
-        case .unorderedList(let items):
-            ListView(items: items, ordered: false, start: 1, textScale: textScale)
-        case .orderedList(let start, let items):
-            ListView(items: items, ordered: true, start: start, textScale: textScale)
+        case .list(let list):
+            ListView(list: list, baseURL: baseURL, textScale: textScale)
         case .image(let url, let alt, let title):
             ImageBlockView(url: url, alt: alt, title: title, baseURL: baseURL, textScale: textScale)
         case .table(let headers, let alignments, let rows):
@@ -212,33 +210,77 @@ private struct BlockquoteView: View {
 }
 
 private struct ListView: View {
-    let items: [String]
-    let ordered: Bool
-    let start: Int
+    let list: MarkdownList
+    let baseURL: URL?
     let textScale: Double
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8 * textScale) {
-            ForEach(Array(items.enumerated()), id: \.offset) { idx, item in
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text(marker(for: idx))
-                        .font(.system(size: ReaderMetrics.baseBodySize * textScale, design: .serif))
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                        .frame(width: 28, alignment: .trailing)
-                    Text(InlineMarkdown.attributed(item))
-                        .font(.system(size: ReaderMetrics.baseBodySize * textScale, design: .serif))
-                        .lineSpacing(ReaderMetrics.baseLineSpacing * textScale)
-                        .foregroundStyle(.primary)
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+            ForEach(Array(list.items.enumerated()), id: \.offset) { index, item in
+                ListItemView(
+                    item: item,
+                    marker: marker(for: index),
+                    baseURL: baseURL,
+                    textScale: textScale
+                )
             }
         }
     }
 
-    private func marker(for idx: Int) -> String {
-        ordered ? "\(start + idx)." : "•"
+    private func marker(for index: Int) -> String {
+        list.ordered ? "\(list.start + index)." : "•"
+    }
+}
+
+private struct ListItemView: View {
+    let item: ListItem
+    let marker: String
+    let baseURL: URL?
+    let textScale: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8 * textScale) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
+                markerView
+                Text(InlineMarkdown.attributed(item.text))
+                    .font(.system(size: ReaderMetrics.baseBodySize * textScale, design: .serif))
+                    .lineSpacing(ReaderMetrics.baseLineSpacing * textScale)
+                    .foregroundStyle(item.task == .done ? .secondary : .primary)
+                    .strikethrough(item.task == .done, color: .secondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            if !item.children.isEmpty {
+                VStack(alignment: .leading, spacing: 8 * textScale) {
+                    ForEach(Array(item.children.enumerated()), id: \.offset) { _, child in
+                        BlockView(block: child, textScale: textScale, baseURL: baseURL)
+                    }
+                }
+                .padding(.leading, 28)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var markerView: some View {
+        switch item.task {
+        case .open:
+            Image(systemName: "square")
+                .font(.system(size: ReaderMetrics.baseBodySize * textScale * 0.95))
+                .foregroundStyle(.secondary)
+                .frame(width: 28, alignment: .trailing)
+        case .done:
+            Image(systemName: "checkmark.square.fill")
+                .font(.system(size: ReaderMetrics.baseBodySize * textScale * 0.95))
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 28, alignment: .trailing)
+        case .none:
+            Text(marker)
+                .font(.system(size: ReaderMetrics.baseBodySize * textScale, design: .serif))
+                .foregroundStyle(.secondary)
+                .monospacedDigit()
+                .frame(width: 28, alignment: .trailing)
+        }
     }
 }
 
