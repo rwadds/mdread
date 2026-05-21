@@ -29,9 +29,16 @@ final class ReaderState {
         defer { if needsAccess { url.stopAccessingSecurityScopedResource() } }
 
         do {
+            let startedAt = Date()
             let source = try readString(at: url)
             let blocks = MarkdownParser.parse(source)
-            self.document = MarkdownDocument(url: url, source: source, blocks: blocks)
+            let openDuration = Date().timeIntervalSince(startedAt)
+            self.document = MarkdownDocument(
+                url: url,
+                source: source,
+                blocks: blocks,
+                openDuration: openDuration
+            )
             self.errorMessage = nil
             NSDocumentController.shared.noteNewRecentDocumentURL(url)
         } catch {

@@ -5,6 +5,7 @@ struct MarkdownDocument: Equatable, Identifiable {
     let url: URL
     let source: String
     let blocks: [MarkdownBlock]
+    let openDuration: TimeInterval
 
     var title: String {
         url.deletingPathExtension().lastPathComponent

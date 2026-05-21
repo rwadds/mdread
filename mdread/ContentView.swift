@@ -10,10 +10,13 @@ struct ContentView: View {
     var body: some View {
         Group {
             if let document = reader.document {
-                MarkdownView(blocks: document.blocks, textScale: reader.textScale, baseURL: document.url)
-                    .id(document.id)
-                    .navigationTitle(document.title)
-                    .toolbar { zoomToolbar }
+                VStack(spacing: 0) {
+                    StatusBarView(document: document)
+                    MarkdownView(blocks: document.blocks, textScale: reader.textScale, baseURL: document.url)
+                }
+                .id(document.id)
+                .navigationTitle(document.title)
+                .toolbar { zoomToolbar }
             } else {
                 EmptyStateView(onOpen: reader.presentOpenPanel)
                     .navigationTitle("mdread")
