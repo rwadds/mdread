@@ -92,6 +92,15 @@ struct MarkdownParser {
         return .heading(level: level, text: content)
     }
 
+    /// Returns the heading level for a Setext underline (`===` → 1, `---` → 2),
+    /// or `nil` when the line is not an underline.
+    private func setextUnderlineLevel(_ trimmed: String) -> Int? {
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed.allSatisfy({ $0 == "=" }) { return 1 }
+        if trimmed.allSatisfy({ $0 == "-" }) { return 2 }
+        return nil
+    }
+
     private mutating func consumeFencedCodeBlock() -> MarkdownBlock? {
         let line = lines[idx]
         let trimmed = line.trimmingCharacters(in: .whitespaces)
@@ -427,6 +436,10 @@ struct MarkdownParser {
             let current = lines[idx]
             let trimmed = current.trimmingCharacters(in: .whitespaces)
             if trimmed.isEmpty { break }
+            if !pieces.isEmpty, let level = setextUnderlineLevel(trimmed) {
+                idx += 1
+                return [.heading(level: level, text: pieces.joined(separator: " "))]
+            }
             if isHorizontalRule(trimmed) { break }
             if matchHeading(trimmed) != nil { break }
             if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") { break }
