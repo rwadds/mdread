@@ -10,7 +10,7 @@ struct ContentView: View {
     var body: some View {
         Group {
             if let document = reader.document {
-                MarkdownView(blocks: document.blocks, textScale: reader.textScale)
+                MarkdownView(blocks: document.blocks, textScale: reader.textScale, baseURL: document.url)
                     .id(document.id)
                     .navigationTitle(document.title)
                     .toolbar { zoomToolbar }

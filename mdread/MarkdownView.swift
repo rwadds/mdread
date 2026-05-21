@@ -1,15 +1,17 @@
+import AppKit
 import SwiftUI
 
 struct MarkdownView: View {
     let blocks: [MarkdownBlock]
     let textScale: Double
+    var baseURL: URL?
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(blocks.enumerated()), id: \.offset) { offset, block in
-                    BlockView(block: block, textScale: textScale)
+                    BlockView(block: block, textScale: textScale, baseURL: baseURL)
                         .padding(.top, topSpacing(for: block, isFirst: offset == 0))
                 }
             }
@@ -31,7 +33,7 @@ struct MarkdownView: View {
             case 3: return 26
             default: return 22
             }
-        case .codeBlock, .blockquote:
+        case .codeBlock, .blockquote, .image:
             return 22
         case .divider:
             return 24
@@ -53,6 +55,7 @@ private enum ReaderMetrics {
 private struct BlockView: View {
     let block: MarkdownBlock
     let textScale: Double
+    let baseURL: URL?
 
     var body: some View {
         switch block {
@@ -63,11 +66,13 @@ private struct BlockView: View {
         case .codeBlock(let language, let code):
             CodeBlockView(language: language, code: code, textScale: textScale)
         case .blockquote(let inner):
-            BlockquoteView(blocks: inner, textScale: textScale)
+            BlockquoteView(blocks: inner, textScale: textScale, baseURL: baseURL)
         case .unorderedList(let items):
             ListView(items: items, ordered: false, start: 1, textScale: textScale)
         case .orderedList(let start, let items):
             ListView(items: items, ordered: true, start: start, textScale: textScale)
+        case .image(let url, let alt, let title):
+            ImageBlockView(url: url, alt: alt, title: title, baseURL: baseURL, textScale: textScale)
         case .divider:
             DividerLine()
         }
@@ -184,11 +189,12 @@ private struct CodeBlockView: View {
 private struct BlockquoteView: View {
     let blocks: [MarkdownBlock]
     let textScale: Double
+    let baseURL: URL?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                BlockView(block: block, textScale: textScale)
+                BlockView(block: block, textScale: textScale, baseURL: baseURL)
             }
         }
         .padding(.leading, 18)
@@ -231,6 +237,118 @@ private struct ListView: View {
 
     private func marker(for idx: Int) -> String {
         ordered ? "\(start + idx)." : "•"
+    }
+}
+
+private struct ImageBlockView: View {
+    let url: String
+    let alt: String
+    let title: String?
+    let baseURL: URL?
+    let textScale: Double
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            imageContent
+            if let caption {
+                Text(caption)
+                    .font(.system(size: 12.5 * textScale, design: .serif))
+                    .italic()
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var caption: String? {
+        if let title, !title.isEmpty { return title }
+        return alt.isEmpty ? nil : alt
+    }
+
+    @ViewBuilder
+    private var imageContent: some View {
+        if let resolved = resolvedURL {
+            if resolved.isFileURL {
+                localImage(resolved)
+            } else {
+                remoteImage(resolved)
+            }
+        } else {
+            placeholder("Image unavailable")
+        }
+    }
+
+    @ViewBuilder
+    private func remoteImage(_ url: URL) -> some View {
+        AsyncImage(url: url) { phase in
+            switch phase {
+            case .empty:
+                ProgressView()
+                    .controlSize(.small)
+                    .frame(maxWidth: .infinity, minHeight: 72)
+            case .success(let image):
+                image
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+            case .failure:
+                placeholder(alt.isEmpty ? "Couldn't load image" : alt)
+            @unknown default:
+                placeholder(alt.isEmpty ? "Couldn't load image" : alt)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func localImage(_ url: URL) -> some View {
+        if let nsImage = NSImage(contentsOf: url) {
+            Image(nsImage: nsImage)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxWidth: nsImage.size.width)
+                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        } else {
+            placeholder(alt.isEmpty ? "Couldn't load image" : alt)
+        }
+    }
+
+    private func placeholder(_ message: String) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: "photo")
+                .font(.system(size: 20))
+                .foregroundStyle(.tertiary)
+            Text(message)
+                .font(.system(size: 13 * textScale, design: .serif))
+                .foregroundStyle(.secondary)
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.primary.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+        )
+    }
+
+    /// Resolves the raw Markdown destination to a loadable URL — remote URLs
+    /// pass through, local paths resolve against the document's directory.
+    private var resolvedURL: URL? {
+        let trimmed = url.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        if let parsed = URL(string: trimmed), let scheme = parsed.scheme?.lowercased() {
+            if scheme == "http" || scheme == "https" || scheme == "file" {
+                return parsed
+            }
+        }
+        if trimmed.hasPrefix("/") {
+            return URL(fileURLWithPath: trimmed)
+        }
+        if let baseURL {
+            return URL(fileURLWithPath: trimmed, relativeTo: baseURL.deletingLastPathComponent())
+        }
+        return nil
     }
 }
 

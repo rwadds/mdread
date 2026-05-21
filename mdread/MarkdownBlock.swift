@@ -7,5 +7,6 @@ enum MarkdownBlock: Equatable, Hashable {
     case blockquote(blocks: [MarkdownBlock])
     case unorderedList(items: [String])
     case orderedList(start: Int, items: [String])
+    case image(url: String, alt: String, title: String?)
     case divider
 }

@@ -53,7 +53,7 @@ struct MarkdownParser {
                 blocks.append(list)
                 continue
             }
-            blocks.append(consumeParagraph())
+            blocks.append(contentsOf: consumeParagraph())
         }
         return blocks
     }
@@ -205,7 +205,7 @@ struct MarkdownParser {
         return .orderedList(start: start, items: items)
     }
 
-    private mutating func consumeParagraph() -> MarkdownBlock {
+    private mutating func consumeParagraph() -> [MarkdownBlock] {
         var pieces: [String] = []
         while idx < lines.count {
             let current = lines[idx]
@@ -220,7 +220,68 @@ struct MarkdownParser {
             pieces.append(trimmed)
             idx += 1
         }
-        return .paragraph(text: pieces.joined(separator: " "))
+        return Self.splitImageBlocks(pieces.joined(separator: " "))
+    }
+
+    // MARK: - Inline images
+
+    private static let imageRegex = try! NSRegularExpression(
+        pattern: #"!\[([^\]]*)\]\(([^)]*)\)"#
+    )
+
+    /// Splits paragraph text into an ordered run of text paragraphs and image
+    /// blocks. A paragraph that is solely an image becomes one `.image` block;
+    /// an image embedded in prose splits the prose around it.
+    private static func splitImageBlocks(_ text: String) -> [MarkdownBlock] {
+        let ns = text as NSString
+        let matches = imageRegex.matches(
+            in: text,
+            range: NSRange(location: 0, length: ns.length)
+        )
+        guard !matches.isEmpty else { return [.paragraph(text: text)] }
+
+        var blocks: [MarkdownBlock] = []
+        var cursor = 0
+        for match in matches {
+            if match.range.location > cursor {
+                let gap = NSRange(location: cursor, length: match.range.location - cursor)
+                appendParagraph(ns.substring(with: gap), to: &blocks)
+            }
+            let alt = ns.substring(with: match.range(at: 1))
+            let dest = ns.substring(with: match.range(at: 2))
+            let (url, title) = parseImageDestination(dest)
+            blocks.append(.image(url: url, alt: alt, title: title))
+            cursor = match.range.location + match.range.length
+        }
+        if cursor < ns.length {
+            appendParagraph(ns.substring(from: cursor), to: &blocks)
+        }
+        return blocks.isEmpty ? [.paragraph(text: text)] : blocks
+    }
+
+    private static func appendParagraph(_ text: String, to blocks: inout [MarkdownBlock]) {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        blocks.append(.paragraph(text: trimmed))
+    }
+
+    private static func parseImageDestination(_ source: String) -> (url: String, title: String?) {
+        let dest = source.trimmingCharacters(in: .whitespaces)
+        if let range = dest.range(of: #"\s+["'][^"']*["']$"#, options: .regularExpression) {
+            let quoted = dest[range].trimmingCharacters(in: .whitespaces)
+            let title = String(quoted.dropFirst().dropLast())
+            let url = cleanImageURL(String(dest[dest.startIndex..<range.lowerBound]))
+            return (url, title.isEmpty ? nil : title)
+        }
+        return (cleanImageURL(dest), nil)
+    }
+
+    private static func cleanImageURL(_ raw: String) -> String {
+        var url = raw.trimmingCharacters(in: .whitespaces)
+        if url.hasPrefix("<"), url.hasSuffix(">"), url.count >= 2 {
+            url = String(url.dropFirst().dropLast())
+        }
+        return url
     }
 
     // MARK: - List marker helpers
