@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 
 struct ContentView: View {
     @Environment(ReaderState.self) private var reader
+    @Environment(FindState.self) private var find
     @Environment(\.colorScheme) private var colorScheme
     @State private var isDropTargeted = false
 
@@ -17,6 +18,17 @@ struct ContentView: View {
                 .id(document.id)
                 .navigationTitle(document.title)
                 .toolbar { zoomToolbar }
+                .overlay(alignment: .top) {
+                    if find.isPresented {
+                        FindBar()
+                            .padding(.top, 10)
+                            .padding(.trailing, 18)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .transition(.move(edge: .top).combined(with: .opacity))
+                    }
+                }
+                .animation(.easeInOut(duration: 0.16), value: find.isPresented)
+                .onChange(of: document.id) { _, _ in find.documentDidChange(document) }
             } else {
                 EmptyStateView(onOpen: reader.presentOpenPanel)
                     .navigationTitle("mdread")
@@ -115,5 +127,6 @@ struct ContentView: View {
 #Preview("Empty") {
     ContentView()
         .environment(ReaderState())
+        .environment(FindState())
         .frame(width: 720, height: 600)
 }

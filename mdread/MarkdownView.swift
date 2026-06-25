@@ -6,21 +6,31 @@ struct MarkdownView: View {
     let textScale: Double
     var baseURL: URL?
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(FindState.self) private var find
 
     var body: some View {
-        ScrollView(.vertical) {
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Array(blocks.enumerated()), id: \.offset) { offset, block in
-                    BlockView(block: block, textScale: textScale, baseURL: baseURL)
-                        .padding(.top, topSpacing(for: block, isFirst: offset == 0))
+        ScrollViewReader { proxy in
+            ScrollView(.vertical) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(blocks.enumerated()), id: \.offset) { offset, block in
+                        BlockView(block: block, textScale: textScale, baseURL: baseURL, path: [offset])
+                            .padding(.top, topSpacing(for: block, isFirst: offset == 0))
+                            .id(offset)
+                    }
+                }
+                .frame(maxWidth: ReaderMetrics.columnMaxWidth, alignment: .leading)
+                .padding(.horizontal, ReaderMetrics.horizontalPadding)
+                .padding(.vertical, ReaderMetrics.verticalPadding)
+                .frame(maxWidth: .infinity, alignment: .center)
+            }
+            .background(ReaderTheme.background(for: colorScheme))
+            .onChange(of: find.scrollGeneration) { _, _ in
+                guard let target = find.currentMatch?.topBlock else { return }
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    proxy.scrollTo(target, anchor: .center)
                 }
             }
-            .frame(maxWidth: ReaderMetrics.columnMaxWidth, alignment: .leading)
-            .padding(.horizontal, ReaderMetrics.horizontalPadding)
-            .padding(.vertical, ReaderMetrics.verticalPadding)
-            .frame(maxWidth: .infinity, alignment: .center)
         }
-        .background(ReaderTheme.background(for: colorScheme))
     }
 
     private func topSpacing(for block: MarkdownBlock, isFirst: Bool) -> CGFloat {
@@ -56,23 +66,24 @@ private struct BlockView: View {
     let block: MarkdownBlock
     let textScale: Double
     let baseURL: URL?
+    let path: [Int]
 
     var body: some View {
         switch block {
         case .heading(let level, let text):
-            HeadingView(level: level, text: text, textScale: textScale)
+            HeadingView(level: level, text: text, textScale: textScale, path: path)
         case .paragraph(let text):
-            ParagraphView(text: text, textScale: textScale)
+            ParagraphView(text: text, textScale: textScale, path: path)
         case .codeBlock(let language, let code):
-            CodeBlockView(language: language, code: code, textScale: textScale)
+            CodeBlockView(language: language, code: code, textScale: textScale, path: path)
         case .blockquote(let inner):
-            BlockquoteView(blocks: inner, textScale: textScale, baseURL: baseURL)
+            BlockquoteView(blocks: inner, textScale: textScale, baseURL: baseURL, path: path)
         case .list(let list):
-            ListView(list: list, baseURL: baseURL, textScale: textScale)
+            ListView(list: list, baseURL: baseURL, textScale: textScale, path: path)
         case .image(let url, let alt, let title):
             ImageBlockView(url: url, alt: alt, title: title, baseURL: baseURL, textScale: textScale)
         case .table(let headers, let alignments, let rows):
-            TableView(headers: headers, alignments: alignments, rows: rows, textScale: textScale)
+            TableView(headers: headers, alignments: alignments, rows: rows, textScale: textScale, path: path)
         case .divider:
             DividerLine()
         }
@@ -82,9 +93,11 @@ private struct BlockView: View {
 private struct ParagraphView: View {
     let text: String
     let textScale: Double
+    let path: [Int]
+    @Environment(FindState.self) private var find
 
     var body: some View {
-        Text(InlineMarkdown.attributed(text))
+        Text(find.highlighted(text, path: path))
             .font(.system(size: ReaderMetrics.baseBodySize * textScale, design: .serif))
             .lineSpacing(ReaderMetrics.baseLineSpacing * textScale)
             .foregroundStyle(.primary)
@@ -97,9 +110,11 @@ private struct HeadingView: View {
     let level: Int
     let text: String
     let textScale: Double
+    let path: [Int]
+    @Environment(FindState.self) private var find
 
     var body: some View {
-        Text(InlineMarkdown.attributed(text))
+        Text(find.highlighted(text, path: path))
             .font(.system(size: size, weight: weight, design: .serif))
             .lineSpacing(2 * textScale)
             .tracking(tracking)
@@ -156,6 +171,10 @@ private struct CodeBlockView: View {
     let language: String?
     let code: String
     let textScale: Double
+    let path: [Int]
+    @Environment(FindState.self) private var find
+    @State private var isHovering = false
+    @State private var didCopy = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -166,15 +185,14 @@ private struct CodeBlockView: View {
                     .padding(.horizontal, 14)
                     .padding(.top, 10)
             }
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(code)
-                    .font(.system(size: ReaderMetrics.baseCodeSize * textScale, design: .monospaced))
-                    .lineSpacing(3 * textScale)
-                    .foregroundStyle(.primary.opacity(0.9))
-                    .textSelection(.enabled)
-                    .padding(14)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
+            Text(find.highlightedPlain(code, path: path))
+                .font(.system(size: ReaderMetrics.baseCodeSize * textScale, design: .monospaced))
+                .lineSpacing(3 * textScale)
+                .foregroundStyle(.primary.opacity(0.9))
+                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
         }
         .background(Color.codeBackground)
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -182,7 +200,44 @@ private struct CodeBlockView: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(Color.codeBorder, lineWidth: 0.5)
         )
+        .overlay(alignment: .topTrailing) {
+            copyButton
+                .padding(8)
+        }
         .frame(maxWidth: .infinity, alignment: .leading)
+        .onHover { isHovering = $0 }
+    }
+
+    private var copyButton: some View {
+        Button(action: copy) {
+            Label(didCopy ? "Copied" : "Copy",
+                  systemImage: didCopy ? "checkmark" : "doc.on.doc")
+                .labelStyle(.iconOnly)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(didCopy ? Color.green : Color.secondary)
+                .frame(width: 26, height: 22)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 6, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.1), lineWidth: 0.5)
+                )
+        }
+        .buttonStyle(.plain)
+        .help(didCopy ? "Copied to clipboard" : "Copy code")
+        .opacity(isHovering || didCopy ? 1 : 0)
+        .animation(.easeInOut(duration: 0.15), value: isHovering)
+        .animation(.easeInOut(duration: 0.15), value: didCopy)
+    }
+
+    private func copy() {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(code, forType: .string)
+        didCopy = true
+        Task {
+            try? await Task.sleep(for: .seconds(1.6))
+            didCopy = false
+        }
     }
 }
 
@@ -190,11 +245,12 @@ private struct BlockquoteView: View {
     let blocks: [MarkdownBlock]
     let textScale: Double
     let baseURL: URL?
+    let path: [Int]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                BlockView(block: block, textScale: textScale, baseURL: baseURL)
+            ForEach(Array(blocks.enumerated()), id: \.offset) { offset, block in
+                BlockView(block: block, textScale: textScale, baseURL: baseURL, path: path + [offset])
             }
         }
         .padding(.leading, 18)
@@ -213,6 +269,7 @@ private struct ListView: View {
     let list: MarkdownList
     let baseURL: URL?
     let textScale: Double
+    let path: [Int]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8 * textScale) {
@@ -221,7 +278,8 @@ private struct ListView: View {
                     item: item,
                     marker: marker(for: index),
                     baseURL: baseURL,
-                    textScale: textScale
+                    textScale: textScale,
+                    path: path + [index]
                 )
             }
         }
@@ -237,12 +295,14 @@ private struct ListItemView: View {
     let marker: String
     let baseURL: URL?
     let textScale: Double
+    let path: [Int]
+    @Environment(FindState.self) private var find
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8 * textScale) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 markerView
-                Text(InlineMarkdown.attributed(item.text))
+                Text(find.highlighted(item.text, path: path))
                     .font(.system(size: ReaderMetrics.baseBodySize * textScale, design: .serif))
                     .lineSpacing(ReaderMetrics.baseLineSpacing * textScale)
                     .foregroundStyle(item.task == .done ? .secondary : .primary)
@@ -252,8 +312,8 @@ private struct ListItemView: View {
             }
             if !item.children.isEmpty {
                 VStack(alignment: .leading, spacing: 8 * textScale) {
-                    ForEach(Array(item.children.enumerated()), id: \.offset) { _, child in
-                        BlockView(block: child, textScale: textScale, baseURL: baseURL)
+                    ForEach(Array(item.children.enumerated()), id: \.offset) { offset, child in
+                        BlockView(block: child, textScale: textScale, baseURL: baseURL, path: path + [offset])
                     }
                 }
                 .padding(.leading, 28)
@@ -401,13 +461,15 @@ private struct TableView: View {
     let alignments: [ColumnAlignment]
     let rows: [[String]]
     let textScale: Double
+    let path: [Int]
+    @Environment(FindState.self) private var find
 
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             Grid(alignment: .leading, horizontalSpacing: 0, verticalSpacing: 0) {
                 GridRow {
                     ForEach(Array(headers.enumerated()), id: \.offset) { index, value in
-                        cell(value, column: index, isHeader: true)
+                        cell(value, column: index, isHeader: true, cellPath: path + [-1, index])
                             .gridColumnAlignment(columnAlignment(index))
                     }
                 }
@@ -415,7 +477,7 @@ private struct TableView: View {
                 ForEach(Array(rows.enumerated()), id: \.offset) { rowIndex, row in
                     GridRow {
                         ForEach(Array(row.enumerated()), id: \.offset) { index, value in
-                            cell(value, column: index, isHeader: false)
+                            cell(value, column: index, isHeader: false, cellPath: path + [rowIndex, index])
                         }
                     }
                     if rowIndex < rows.count - 1 {
@@ -427,9 +489,9 @@ private struct TableView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func cell(_ text: String, column: Int, isHeader: Bool) -> some View {
+    private func cell(_ text: String, column: Int, isHeader: Bool, cellPath: [Int]) -> some View {
         let alignment = column < alignments.count ? alignments[column] : ColumnAlignment.leading
-        return Text(InlineMarkdown.attributed(text))
+        return Text(find.highlighted(text, path: cellPath))
             .font(.system(size: ReaderMetrics.baseBodySize * textScale * 0.95,
                            weight: isHeader ? .semibold : .regular,
                            design: .serif))
