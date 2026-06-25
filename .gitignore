@@ -1,0 +1,24 @@
+# macOS
+.DS_Store
+
+# Xcode — user-specific state (leaks username, machine-local)
+xcuserdata/
+*.xcuserstate
+*.xcscmblueprint
+
+# Xcode — build artifacts
+build/
+DerivedData/
+*.moved-aside
+*.hmap
+*.dSYM
+*.dSYM.zip
+*.ipa
+
+# Swift Package Manager
+.build/
+.swiftpm/
+
+# Dependency managers (unused, kept for safety)
+Pods/
+Carthage/Build/
