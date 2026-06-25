@@ -11,6 +11,12 @@ HTML soup, just text laid out the way a book would lay it out.
   reading column that doesn't stretch past about 70 characters per line.
 - **Adjustable text size** — `⌘+` / `⌘−` to step the font up or down, `⌘0` to
   reset. Also available as `−` / `%` / `+` controls in the window toolbar.
+- **Find in page** — `⌘F` opens a floating search field; `⌘G` / `⇧⌘G` (or
+  `return` / `⇧return`) step through matches and `esc` closes. Case- and
+  diacritic-insensitive, with a live "N of M" count.
+- **Copy code blocks** — hover any fenced code block and click **Copy** to put
+  its contents on the clipboard. Long lines wrap to the column instead of
+  scrolling sideways.
 - **Live reload** — re-read the open file at any time with `⌘R`. Edit in your
   favourite editor, read here.
 - **Single document, single window** — open a new file and it replaces what's
@@ -23,7 +29,8 @@ HTML soup, just text laid out the way a book would lay it out.
 - ATX and Setext headings (`#` through `######`, or `===` / `---` underlines)
 - Paragraphs with inline `**bold**`, `*italic*`, `` `code` ``, `~~strike~~`,
   `[links](https://...)` and autolinks
-- Fenced code blocks (` ``` ` and `~~~`), with an optional language label
+- Fenced code blocks (` ``` ` and `~~~`), with an optional language label, a
+  hover **Copy** button, and soft-wrapped long lines
 - Block quotes (`>` prefix)
 - Unordered, ordered, and nested lists, plus `[ ]` / `[x]` task lists
 - Tables, with per-column alignment
@@ -53,8 +60,20 @@ xcodebuild -project mdread.xcodeproj -scheme mdread clean
 
 Or just open `mdread.xcodeproj` in Xcode and hit Run.
 
-A small `sample.md` lives at the repo root — drag it onto the window to take
-the typography for a spin.
+## Sample & test documents
+
+Drag any of these (all at the repo root) onto the window to exercise the
+renderer:
+
+| File | Exercises |
+|------|-----------|
+| `sample.md`      | Typography showcase — a good first drag |
+| `test-500kb.md`  | Large-document scrolling and parse performance |
+| `test-html.md`   | Raw-HTML passthrough |
+| `test-images.md` | Inline and block images (local + remote) |
+| `test-lists.md`  | Ordered, unordered, nested, and task lists |
+| `test-setext.md` | Setext (`===` / `---`) headings |
+| `test-tables.md` | Tables with per-column alignment |
 
 ## Project layout
 
@@ -69,7 +88,11 @@ mdread/
     ├── MarkdownBlock.swift    Block-level AST
     ├── MarkdownParser.swift   Block-level parser
     ├── InlineMarkdown.swift   Inline parser (AttributedString) + styling
-    ├── MarkdownView.swift     SwiftUI renderer + typography
+    ├── HTMLText.swift         Raw-HTML passthrough (tags stripped to text)
+    ├── MarkdownView.swift     SwiftUI renderer + typography + code copy
+    ├── FindState.swift        Find model — match indexing + highlighting
+    ├── FindBar.swift          Floating ⌘F search field
+    ├── StatusBarView.swift    Open-timing status bar
     └── EmptyStateView.swift   No-document state + drop overlay
 ```
 
@@ -78,4 +101,4 @@ AppKit.
 
 ## License
 
-MIT (or whatever you'd prefer — add a `LICENSE` file before sharing).
+MIT — see [`LICENSE.md`](LICENSE.md).
